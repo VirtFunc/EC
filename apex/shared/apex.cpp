@@ -10,6 +10,7 @@ namespace apex
 		static QWORD cvar = 0;
 		static QWORD input = 0;
 		static QWORD engine = 0;
+		static QWORD window_info = 0;
 	}
 
 	namespace direct
@@ -17,6 +18,7 @@ namespace apex
 		static QWORD C_BasePlayer = 0;
 		static QWORD view_render = 0;
 		static QWORD view_matrix = 0;
+		static QWORD camera_origin = 0;
 	}
 
 	namespace convars
@@ -109,18 +111,31 @@ BOOL apex::engine::get_window_info(WINDOW_INFO *info)
 {
 	typedef struct
 	{
-		int w, h;
+		int x, y, w, h, idk, dw, dh;
 	} WININFO;
 
+	// x,y are updated in real-time, will return 0.0 if it's in the center of the desktop
+	// w, h, dw, dh are only updated when the game starts
+
 	WININFO win{};
-	if (!vm::read(game_handle, interfaces::input + 0xfbfc, &win, sizeof(win)))
+	if (!vm::read(game_handle, interfaces::window_info, &win, sizeof(win)))
 	{
+		win.x = 0;
+		win.y = 0;
 		win.w = 1920;
 		win.h = 1080;
 	}
+	else
+	{
+		if (win.x == 0 && win.y == 0)
+		{
+			win.x = (win.dw - win.w) / 2;
+			win.y = (win.dh - win.h) / 2;
+		}
+	}
 
-	info->x = 0;
-	info->y = 0;
+	info->x = (float)win.x;
+	info->y = (float)win.y;
 	info->w = (float)win.w;
 	info->h = (float)win.h;
 	return 1;
@@ -135,7 +150,7 @@ QWORD apex::entity::get_client_entity(int index)
 {
 	index = index + 1;
 	index = index << 0x5;
-	return vm::read_i64(game_handle, (index + interfaces::IClientEntityList) - 0x280050);
+	return vm::read_i64(game_handle, (index + interfaces::IClientEntityList));
 }
 
 float apex::mouse::get_sensitivity(void)
@@ -238,7 +253,7 @@ vec3 apex::player::get_camera_origin(QWORD player_address)
 {
 	vec3 muzzle{};
 
-	if (!vm::read(game_handle, player_address + 0x1eb0, &muzzle, sizeof(muzzle)))
+	if (!vm::read(game_handle, player_address + direct::camera_origin, &muzzle, sizeof(muzzle)))
 	{
 		return {};
 	}
@@ -378,32 +393,36 @@ static BOOL apex::initialize(void)
 	JZ(vtable_list = vm::scan_pattern(apex_dump, "\x48\x0F\x44\xCE\x48\x89\x05", "xxxxxxx", 8), E2);
 	JZ(bullet_vars = vm::scan_pattern(
 		apex_dump,
-		"\xF3\x0F\x10\x8B\x00\x00\x00\x00\xF3\x0F\x10\x83\x00\x00\x00\x00\x48\x8B\x05", "xxxx??xxxxxx??xxxxx", 20), E2);
+		"\xF3\x0F\x10\x8E\xC4\x1E\x00\x00\xF3\x0F\x10\x86\xFC\x1C\x00\x00", "xxxxxxxxxxxxxxxx", 17), E2);
 	JZ(visible_time = vm::scan_pattern(apex_dump, "\x74\x44\x48\x8B\x93\x00\x00\x00\x00\x48\x85\xD2", "xxxxx????xxx", 13), E2);
-	JZ(interfaces::IClientEntityList = vm::scan_pattern(apex_dump, "\x4C\x8B\x15\x00\x00\x00\x00\x33\xF6", "xxx????xx", 9), E2);
+	JZ(interfaces::IClientEntityList = vm::scan_pattern(apex_dump, "\x48\x8D\x35\x00\x00\x00\x00\x48\x8B\xD9\x83\xF8\xFF\x74\x63\x0F\xB7\xC8", "xxx????xxxxxxxxxxx", 18), E2);
 	JZ(direct::C_BasePlayer = vm::scan_pattern(apex_dump, "\x48\x89\x05\x00\x00\x00\x00\x48\x85\xC9\x74\x0D", "xxx????xxxxx", 13), E2);
 	JZ(get_all_classes = vm::scan_pattern(apex_dump, "\x4C\x8B\xD8\xEB\x07\x4C\x8B\x1D", "xxxxxxxx", 9), E2);
 	JZ(direct::view_render = vm::scan_pattern(apex_dump, "\x40\x53\x48\x83\xEC\x20\x48\x8B\x0D\x00\x00\x00\x00\x48\x8B\xDA\xBA\xFF\xFF\xFF\xFF",
 		"xxxxxxxxx????xxxxxxxx", 22), E2);
-	JZ(direct::view_matrix = vm::scan_pattern(apex_dump, "\x4C\x89\xB3\x00\x00\x00\x00\x48\x89\xAB", "xxx????xxx", 11), E2);
+	JZ(direct::view_matrix = vm::scan_pattern(apex_dump, "\x49\x8B\xB5\x00\x00\x00\x00\x49\x8B\x9D\x00\x00\x00\x00\xE8\x00\x00\x00\x00", "xxx????xxx????x????", 19), E2);
+	JZ(direct::camera_origin = vm::scan_pattern(apex_dump, "\x48\x8B\xF9\x0F\x2E\x89\x00\x00\x00\x00\x7A", "xxxxxx????x", 11), E2);
+	JZ(interfaces::window_info = vm::scan_pattern(apex_dump, "\x89\x05\xCC\xCC\xCC\xCC\x32\xC0\x89\x0D", "xx????xxxx", 10), E2);
 
 	vm::free_module(apex_dump);
 
 
-	interfaces::IClientEntityList = vm::get_relative_address(game_handle, interfaces::IClientEntityList, 3, 7) + 0x08;
+	interfaces::IClientEntityList = vm::get_relative_address(game_handle, interfaces::IClientEntityList, 3, 7);
 	direct::C_BasePlayer      = vm::get_relative_address(game_handle, direct::C_BasePlayer, 3, 7) + 0x08;
 	get_all_classes               = vm::get_relative_address(game_handle, get_all_classes + 0x05, 3, 7);
 	JZ(get_all_classes            = vm::read_i64(game_handle, get_all_classes), E1);
 	direct::view_render           = vm::get_relative_address(game_handle, direct::view_render + 0x06, 3, 7);
 	JZ(direct::view_matrix        = vm::read_i32(game_handle, direct::view_matrix + 3), E1);
+	direct::camera_origin         = vm::read_i32(game_handle, direct::camera_origin + 6);
+	interfaces::window_info       = vm::get_relative_address(game_handle, interfaces::window_info, 2, 6);
 	JZ(dump_netvars(get_all_classes), E1);
 	
 	//
 	// initialize vtable list interfaces
 	//
 	interfaces::input  = vm::get_relative_address(game_handle, vtable_list - 0x0007, 3, 7);
-	interfaces::cvar   = vm::get_relative_address(game_handle, vtable_list - 0x011B, 3, 7);
-	interfaces::engine = vm::get_relative_address(game_handle, vtable_list + 0x003A, 3, 7);
+	interfaces::cvar   = vm::get_relative_address(game_handle, vtable_list - 0x011D, 3, 7);
+	interfaces::engine = vm::get_relative_address(game_handle, vtable_list + 0x0035, 3, 7);
 
 	//
 	// initialize bullet information
@@ -421,7 +440,6 @@ static BOOL apex::initialize(void)
 	JZ(convars::gamepad_aim_speed = engine::get_convar("gamepad_aim_speed"), E1);
 
 
-	// direct::view_matrix = 0x11a350;
 	
 
 	LOG("IClientEntityList:  %p\n", (PVOID)(interfaces::IClientEntityList - apex_base));
@@ -429,8 +447,10 @@ static BOOL apex::initialize(void)
 	LOG("cvar:               %p\n", (PVOID)(interfaces::cvar - apex_base));
 	LOG("input:              %p\n", (PVOID)(interfaces::input - apex_base));
 	LOG("engine:             %p\n", (PVOID)(interfaces::engine - apex_base));
+	LOG("window_info:        %p\n", (PVOID)(interfaces::window_info - apex_base));
 	LOG("view_render:        %p\n", (PVOID)(direct::view_render - apex_base));
 	LOG("view_matrix:        %p\n", (PVOID)direct::view_matrix);
+	LOG("camera_origin:      %p\n", (PVOID)direct::camera_origin);
 
 
 	LOG("m_iHealth:          %x\n", netvars::m_iHealth);

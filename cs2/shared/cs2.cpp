@@ -25,7 +25,6 @@ namespace cs2
 		static QWORD view_angles;
 		static QWORD view_matrix;
 		static DWORD button_state;
-		static QWORD previous_xy;
 	}
 
 	namespace convars
@@ -49,8 +48,6 @@ namespace cs2
 		static int m_modelState = 0;
 		static int m_aimPunchCache = 0;
 		static int m_iShotsFired = 0;
-		static int m_angEyeAngles = 0;
-		static int m_iIDEntIndex = 0;
 		static int m_vOldOrigin = 0;
 		static int m_pClippingWeapon = 0;
 		static int v_angle = 0;
@@ -59,7 +56,6 @@ namespace cs2
 		static int m_bPawnHasDefuser = 0;
 		static int m_hActiveWeapon = 0;
 		static int m_pWeaponServices = 0;
-		static int m_sSanitizedPlayerName = 0;
 	}
 
 	static BOOL initialize(void);
@@ -128,11 +124,10 @@ static BOOL cs2::initialize(void)
 	JZ(client_dll = vm::get_module(game_handle, get_client_name()), E1);
 	JZ(sdl = vm::get_module(game_handle, get_sdl3_name()), E1);
 	JZ(inputsystem = vm::get_module(game_handle, get_inputsystem_name()), E1);
-	JZ(direct::previous_xy = vm::scan_pattern_direct(game_handle, inputsystem, "\xF3\x0F\x10\x0D", "xxxx", 4), E1);
-	direct::previous_xy = vm::get_relative_address(game_handle, direct::previous_xy, 4, 8);
 	interfaces::resource = get_interface(vm::get_module(game_handle, get_engine_name()), "GameResourceServiceClientV0");
 	if (interfaces::resource == 0)
 	{
+		LOG(__FILE__ ": line %d\n", __LINE__);
 	E1:
 		vm::close(game_handle);
 		game_handle = 0;
@@ -194,11 +189,10 @@ static BOOL cs2::initialize(void)
 	if (vm::get_target_os() == VmOs::Linux)
 	{
 		//
-		// viewmatrix: 48 63 c6 48 c1 E0 06 48 03 05 ? ? ? ? C3 90
+		// viewmatrix: 48 8d 05 ? ? ? ? 4c 8d 05 ? ? ? ? 48 8d 0d
 		//
-		JZ(direct::view_matrix = vm::scan_pattern_direct(game_handle, client_dll, "\x48\x63\xc6\x48\xc1\xE0\x06\x48\x03\x05", "xxxxxxxxxx", 10), E1);
-		direct::view_matrix    = vm::get_relative_address(game_handle, direct::view_matrix + 0x07, 3, 7);
-		JZ(direct::view_matrix = vm::read_i64(game_handle, direct::view_matrix), E1);
+		JZ(direct::view_matrix = vm::scan_pattern_direct(game_handle, client_dll, "\x48\x8D\x05\x00\x00\x00\x00\x4C\x8D\x05\x00\x00\x00\x00\x48\x8D\x0D", "xxx????xxx????xxx", 17), E1);
+		direct::view_matrix    = vm::get_relative_address(game_handle, direct::view_matrix + 0x7, 3, 7);
 	}
 	else
 	{
@@ -319,11 +313,6 @@ static BOOL cs2::initialize(void)
 				LOG("%s, %x\n", netvar_name, *(int*)(entry + 0x08 + 0x10));
 				netvars::m_iShotsFired = *(int*)(entry + 0x08 + 0x10);
 			}
-			else if (!netvars::m_angEyeAngles && !strcmpi_imp(netvar_name, "m_angEyeAngles") && network_enable)
-			{
-				LOG("%s, %x\n", netvar_name, *(int*)(entry + 0x08 + 0x10));
-				netvars::m_angEyeAngles = *(int*)(entry + 0x08 + 0x10);
-			}
 			else if (!netvars::m_flFOVSensitivityAdjust && !strcmpi_imp(netvar_name, "m_flFOVSensitivityAdjust"))
 			{
 				LOG("%s, %x\n", netvar_name, *(int*)(entry + 0x08));
@@ -348,11 +337,7 @@ static BOOL cs2::initialize(void)
 			{
 				LOG("%s, %x\n", netvar_name, *(int*)(entry + 0x08 + 0x10));
 				netvars::m_vecOrigin = *(int*)(entry + 0x08 + 0x10);
-			}
-			else if (!netvars::m_iIDEntIndex && !strcmpi_imp(netvar_name, "m_iIDEntIndex") && network_enable)
-			{
-				LOG("%s, %x\n", netvar_name, *(int*)(entry + 0x08 + 0x10));
-				netvars::m_iIDEntIndex = *(int*)(entry + 0x08 + 0x10);
+				if (netvars::m_vecOrigin > 0x200) netvars::m_vecOrigin = 0;
 			}
 			else if (!netvars::m_vOldOrigin && !strcmpi_imp(netvar_name, "m_vOldOrigin"))
 			{
@@ -482,11 +467,6 @@ static BOOL cs2::initialize(void)
 					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x08 + 0x10));
 					netvars::m_iShotsFired = *(int*)(dos_header + j + 0x08 + 0x10);
 				}
-				else if (!netvars::m_angEyeAngles && !strcmpi_imp(netvar_name, "m_angEyeAngles") && network_enable)
-				{
-					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x08 + 0x10));
-					netvars::m_angEyeAngles = *(int*)(dos_header + j + 0x08 + 0x10);
-				}
 				else if (!netvars::m_flFOVSensitivityAdjust && !strcmpi_imp(netvar_name, "m_flFOVSensitivityAdjust"))
 				{
 					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x10));
@@ -511,11 +491,8 @@ static BOOL cs2::initialize(void)
 				{
 					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x08 + 0x10));
 					netvars::m_vecOrigin = *(int*)(dos_header + j + 0x08 + 0x10);
-				}
-				else if (!netvars::m_iIDEntIndex && !strcmpi_imp(netvar_name, "m_iIDEntIndex") && network_enable)
-				{
-					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x08 + 0x10));
-					netvars::m_iIDEntIndex = *(int*)(dos_header + j + 0x08 + 0x10);
+
+					if (netvars::m_vecOrigin > 0x200) netvars::m_vecOrigin = 0;
 				}
 				else if (!netvars::m_vOldOrigin && !strcmpi_imp(netvar_name, "m_vOldOrigin"))
 				{
@@ -556,11 +533,6 @@ static BOOL cs2::initialize(void)
 				{
 					netvars::m_pWeaponServices = *(int*)(dos_header + j + 0x10);
 				}
-				else if (!netvars::m_sSanitizedPlayerName && network_enable && !strcmpi_imp(netvar_name, "m_sSanitizedPlayerName"))
-				{
-					LOG("%s, %x\n", netvar_name, *(int*)(dos_header + j + 0x08 + 0x10));
-					netvars::m_sSanitizedPlayerName = *(int*)(dos_header + j + 0x08 + 0x10);
-				}
 			}
 		}
 		vm::free_module(dump_client);
@@ -578,8 +550,6 @@ static BOOL cs2::initialize(void)
 	JZ(netvars::m_modelState, E1);
 	JZ(netvars::m_aimPunchCache, E1);
 	JZ(netvars::m_iShotsFired, E1);
-	JZ(netvars::m_angEyeAngles, E1);
-	JZ(netvars::m_iIDEntIndex, E1);
 	JZ(netvars::m_vOldOrigin, E1);
 
 
@@ -599,7 +569,7 @@ BOOL cs2::sdl::get_window_info(QWORD window, WINDOW_INFO *info)
 	} wvec4 ;
 
 	wvec4 buffer{};
-	if (!vm::read(game_handle, window + 0x20, &buffer, sizeof(buffer)))
+	if (!vm::read(game_handle, window + 0x18, &buffer, sizeof(buffer)))
 		return 0;
 
 	info->x = (float)buffer.x;
@@ -612,7 +582,7 @@ BOOL cs2::sdl::get_window_info(QWORD window, WINDOW_INFO *info)
 
 QWORD cs2::sdl::get_window_data(QWORD window)
 {
-	return vm::read_i64(game_handle, window + 0x120);
+	return vm::read_i64(game_handle, window + 0x168);
 }
 
 QWORD cs2::sdl::get_hwnd(QWORD window_data)
@@ -731,6 +701,7 @@ QWORD cs2::entity::get_client_entity(int index)
 
 BOOL cs2::entity::is_player(QWORD controller)
 {
+	/*
 	if (vm::get_target_os() == VmOs::Linux)
 	{
 		return 1;
@@ -747,6 +718,12 @@ BOOL cs2::entity::is_player(QWORD controller)
 	// cc
 	//
 	return value == 0xCCC301B0;
+	*/
+
+	//
+	// deprecated function, just compiler fix
+	//
+	return controller != 0;
 }
 
 QWORD cs2::entity::get_player(QWORD controller)
@@ -774,11 +751,6 @@ BOOL cs2::entity::has_defuser(QWORD entity)
 	return (BOOL)vm::read_i8(game_handle, entity + netvars::m_bPawnHasDefuser);
 }
 
-QWORD cs2::entity::get_name_address(QWORD player)
-{
-	return vm::read_i64(game_handle, player + netvars::m_sSanitizedPlayerName);
-}
-
 int cs2::get_crosshairalpha(void)
 {
 	return vm::read_i32(game_handle, convars::cl_crosshairalpha + 0x40);
@@ -802,15 +774,9 @@ BOOL cs2::input::is_button_down(DWORD button)
 
 void cs2::input::move(int x, int y)
 {
-	typedef struct 
-	{
-		float y, x;
-	} DATA; 
-
-	DATA data{};
-	data.x = (float)y;
-	data.y = (float)x;
-	vm::write(game_handle, direct::previous_xy - 4, &data, sizeof(data));
+	// remove compiler warning
+	x = 0;
+	y = 0;
 }
 
 DWORD cs2::player::get_health(QWORD player)
@@ -850,24 +816,9 @@ vec3 cs2::player::get_eye_position(QWORD player)
 	return origin;
 }
 
-DWORD cs2::player::get_crosshair_id(QWORD player)
-{
-	return vm::read_i32(game_handle, player + netvars::m_iIDEntIndex);
-}
-
 DWORD cs2::player::get_shots_fired(QWORD player)
 {
 	return vm::read_i32(game_handle, player + netvars::m_iShotsFired);
-}
-
-vec2 cs2::player::get_eye_angles(QWORD player)
-{
-	vec2 value{};
-	if (!vm::read(game_handle, player + netvars::m_angEyeAngles, &value, sizeof(value)))
-	{
-		value = {};
-	}
-	return value;
 }
 
 float cs2::player::get_fov_multipler(QWORD player)
@@ -924,7 +875,7 @@ cs2::WEAPON_CLASS cs2::player::get_weapon_class(QWORD player)
 	//
 	// C_EconEntity::m_AttributeManager + C_AttributeContainer::m_Item + C_EconItemView::m_iItemDefinitionIndex
 	//
-	WORD weapon_index = vm::read_i16(game_handle, weapon + 0x1098 + 0x50 + 0x1BA);
+	WORD weapon_index = vm::read_i16(game_handle, weapon + 0x1140 + 0x50 + 0x1BA);
 
 	/* knife */
 	{

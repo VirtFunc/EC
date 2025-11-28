@@ -219,9 +219,10 @@ int main(void)
 		}
 		else
 		{
-			cs2::running();
-			csgo::running();
-			apex::running();
+			BOOL is_running = 0;
+			if (!is_running) is_running = cs2::running();
+			if (!is_running) is_running = csgo::running();
+			if (!is_running) is_running = apex::running();
 		}
 
 		SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
@@ -307,6 +308,10 @@ BOOL kmbox::net::open()
 		}
 		return dest[0] << 24 | dest[1] << 16 | dest[2] << 8 | dest[3];
 	};
+
+	GetPrivateProfileStringA("kmboxnet", "ip", "", ip, 14, "./kmboxnet.txt");
+	GetPrivateProfileStringA("kmboxnet", "port", "", port, 5, "./kmboxnet.txt");
+	GetPrivateProfileStringA("kmboxnet", "uuid", "", uuid, 9, "./kmboxnet.txt");
 
 	srand((unsigned)time(NULL));
 	net_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -407,8 +412,8 @@ BOOL kmbox::scan_devices(LPCSTR deviceName, LPSTR lpOut)
 
 	while (SetupDiEnumDeviceInfo(deviceInfo, count++, &dev_info_data))
 	{
-		BYTE buffer[256];
-		if (SetupDiGetDeviceRegistryProperty(deviceInfo, &dev_info_data, SPDRP_FRIENDLYNAME, NULL, buffer, sizeof(buffer), NULL))
+		BYTE buffer[256]{};
+		if (SetupDiGetDeviceRegistryPropertyA(deviceInfo, &dev_info_data, SPDRP_FRIENDLYNAME, NULL, buffer, sizeof(buffer), NULL))
 		{
 			DWORD i = (DWORD)strlen(lpOut);
 			LPCSTR lp_pos = strstr((LPCSTR)buffer, com);
